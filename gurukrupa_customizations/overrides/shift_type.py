@@ -13,3 +13,10 @@ def before_save(doc, method=None):
 
     if doc.shift_hours < 0:
         doc.shift_hours = doc.shift_hours + 12
+
+def set_date_value():
+    for row in frappe.db.get_all("Shift Type", {"enable_auto_attendance": 1}):
+        doc = frappe.get_doc("Shift Type", row)
+        doc.last_sync_of_checkin = frappe.utils.now()
+        doc.flags.ignore_permissions = True
+        doc.save()

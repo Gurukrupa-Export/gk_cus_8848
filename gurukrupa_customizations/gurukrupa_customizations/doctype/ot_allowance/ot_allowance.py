@@ -64,7 +64,7 @@ class OTAllowance(Document):
 		
 		for holiday_list, emp_list in holidays.items():
 			holidays_list = frappe.get_all("Holiday", {"parent": holiday_list,
-					"holiday_date":["between",[self.from_date, self.to_date]], "weekly_off": 1}, ["holiday_date","weekly_off"])
+					"holiday_date":["between",[self.from_date, self.to_date]]}, ["holiday_date","weekly_off"])
 			for emp in emp_list:
 				res += self.get_weekoffs_ot_per_employee(from_log, emp, holidays_list)
 		return res

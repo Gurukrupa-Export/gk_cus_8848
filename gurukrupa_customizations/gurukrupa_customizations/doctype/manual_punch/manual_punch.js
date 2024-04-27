@@ -6,6 +6,7 @@ frappe.ui.form.on('Manual Punch', {
 		frm.set_intro("Existing Personal Out and OT records will be cancelled on save")
 	},
 	onload(frm){
+		frm.doc.date = null
 		frm.trigger('date')
 		frm.set_value({"employee":null, "shift_name": null, "start_time": null, "end_time": null, "for_od":0, "punch_id":null})
 	},
