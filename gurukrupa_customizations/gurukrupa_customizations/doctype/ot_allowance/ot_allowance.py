@@ -46,6 +46,7 @@ class OTAllowance(Document):
 			left join `tabEmployee` emp on at.employee = emp.name
 			where at.docstatus = 1 and time_to_sec(timediff(at.out_time,timestamp(date(at.in_time),st.end_time))) > 0 {conditions}""", as_dict=1)
 		self.ot_details = []
+		# frappe.throw(f"{data}")
 		data = data + self.get_weekoffs_ot(from_log)
 		if not data:
 			frappe.msgprint("No Records were found for the current filters")
@@ -164,7 +165,6 @@ class OTAllowance(Document):
 			sub_query_filter.append(f"e.designation = '{self.designation}'")
 		
 		conditions += f" and at.employee in (select e.name from `tabEmployee` e where {' and '.join(sub_query_filter)})"
-
 		return conditions
 
 def create_ot_log(ref_doc):

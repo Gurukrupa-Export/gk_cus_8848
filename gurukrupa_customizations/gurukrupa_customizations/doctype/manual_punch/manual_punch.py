@@ -150,17 +150,25 @@ def cancel_linked_records(employee, date):
 	return {"ot":ot, "po": po}
 
 def get_checkins(employee, shift_datetime):
+	
 	if not (employee and shift_datetime):
 		return []
 	shift_timings = get_employee_shift_timings(employee, get_datetime(shift_datetime), True)[1] 	#for current shift
+	# frappe.throw(f"{shift_timings}")
 	or_filter = {
 			"time":["between",[get_datetime_str(shift_timings.actual_start), get_datetime_str(shift_timings.actual_end)]]
 	}
+	# frappe.throw(f"{or_filter}")
 	fields = ["date(time) as date", "log_type as type", "time", "source", "name as employee_checkin"]
+	
 	attendance = frappe.db.get_value("Attendance", {"employee": employee, "attendance_date": getdate(shift_datetime), "docstatus":1})
+	# frappe.throw(f"{shift_datetime}")
 	if attendance:
+		# frappe.throw(f"2nd iF")
 		or_filter["attendance"] = attendance
 	data = frappe.get_list("Employee Checkin", filters= {"employee": employee}, or_filters = or_filter, fields=fields, order_by='time')
+	# frappe.throw(f"{data}")
 	if not data:
 		return []
+	
 	return data
