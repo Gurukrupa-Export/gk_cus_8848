@@ -30,7 +30,11 @@ def execute(filters=None):
 	if filters and filters.get("print_in_account_currency") and not filters.get("account"):
 		frappe.throw(_("Select an account to print in account currency"))
 
-	for acc in frappe.db.sql("""select name, is_group from tabAccount""", as_dict=1):
+	for acc in frappe.db.sql("""
+						  SELECT 
+						  	name,
+						  	is_group from tabAccount
+						  """, as_dict=1):
 		account_details.setdefault(acc.name, acc)
 
 	if filters.get("party"):
@@ -102,7 +106,9 @@ def validate_party(filters):
 
 def set_account_currency(filters):
 	if filters.get("account") or (filters.get("party") and len(filters.party) == 1):
-		filters["company_currency"] = frappe.get_cached_value("Company", filters.company, "default_currency")
+		filters["company_currency"] = frappe.get_cached_value(
+			"Company", filters.company, "default_currency"
+		)
 		account_currency = None
 
 		if filters.get("account"):
@@ -182,24 +188,38 @@ def get_gl_entries(filters, accounting_dimensions):
 
 	gl_entries = frappe.db.sql(
 		"""
-		select
-			name as gl_entry, posting_date, account, party_type, party,
-			voucher_type, voucher_no, {dimension_fields}
-			cost_center, project,
-			against_voucher_type, against_voucher, account_currency,
-			remarks, against, is_opening, creation {select_fields}
-		from `tabGL Entry`
-		where company=%(company)s {conditions}
-		{order_by_statement}
-	""".format(
-			dimension_fields=dimension_fields,
-			select_fields=select_fields,
-			conditions=get_conditions(filters),
-			order_by_statement=order_by_statement,
-		),
-		filters,
-		as_dict=1,
-	)
+		SELECT
+			name AS gl_entry,
+			posting_date,
+			account,
+			party_type,
+			party,
+			voucher_type,
+			voucher_no,
+			{dimension_fields}
+			cost_center,
+			project,
+			against_voucher_type,
+			against_voucher,
+			account_currency,
+			remarks,
+			against,
+			is_opening,
+			creation
+			{select_fields}
+		FROM `tabGL Entry`
+		WHERE company = %(company)s
+			{conditions}
+			{order_by_statement};
+		""".format(
+				dimension_fields=dimension_fields,
+				select_fields=select_fields,
+				conditions=get_conditions(filters),
+				order_by_statement=order_by_statement,
+			),
+			filters,
+			as_dict=1,
+		)
 
 	if filters.get("presentation_currency"):
 		return convert_to_presentation_currency(gl_entries, currency_map, filters.get("company"))

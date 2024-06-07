@@ -15,11 +15,11 @@ class ManualPunch(Document):
 	def on_update(self):
 		if self.employee:
 			if not self.shift_name:
-				frappe.throw(_(f"Shift type missing for Employee: {self.employee}"))
+				frappe.throw(_('Shift type missing for Employee: {0}').format(self.employee))
 			process_attendance(self.employee, self.shift_name, self.date)
 			cancel_linked_records(date=self.date, employee=self.employee)
 			create_prsnl_out_logs(from_date=self.date, to_date=self.date, employee=self.employee)
-			frappe.msgprint("Attendance Updated")
+			frappe.msgprint(_("Attendance Updated"))
 
 	def validate(self):
 		self.validate_od_punch()
@@ -32,7 +32,7 @@ class ManualPunch(Document):
 		shift_datetime = datetime.combine(getdate(self.date), get_time(self.start_time))
 		shift_det = get_employee_shift_timings(self.employee, shift_datetime, True)[1]
 		if not (get_datetime(self.new_punch) > shift_det.actual_start and get_datetime(self.new_punch) < shift_det.actual_end):
-			frappe.throw(_(f"Punch must be in between {shift_det.actual_start} and {shift_det.actual_end}"))
+			frappe.throw(_("Punch must be in between {0} and {1}").format(shift_det.actual_start, shift_det.actual_end))
 
 	def validate_od_punch(self):
 		if self.for_od or any([row.source for row in (self.details or []) if row.source == "Outdoor Duty"]):
@@ -65,7 +65,7 @@ class ManualPunch(Document):
 			to_be_deleted = [name for name in to_be_deleted if name]
 			for docname in to_be_deleted:
 				frappe.delete_doc("Employee Checkin",docname,ignore_missing=1)
-			frappe.msgprint(_(f"Following Employee Checkins deleted: {', '.join(to_be_deleted)}"))
+			frappe.msgprint(_("Following Employee Checkins deleted: {0}").format(', '.join(to_be_deleted)))
 		self.to_be_deleted = None
 
 	def validate_filters(self):
@@ -143,32 +143,32 @@ def cancel_linked_records(employee, date):
 	ot = frappe.get_list("OT Log",{"employee":employee, "attendance_date":date, "is_cancelled":0},pluck="name")
 	po = frappe.get_list("Personal Out Log",{"employee":employee, "date":date, "is_cancelled":0},pluck="name")
 	if ot:
-		frappe.db.sql(f"""update `tabOT Log` set is_cancelled = 1 where name in ('{"', '".join(ot)}')""")
-		frappe.msgprint("Existing OT Records are cancelled")
+		frappe.db.sql(f"""
+				UPDATE 
+					`tabOT Log` set is_cancelled = 1 
+				WHERE name in ('{"', '".join(ot)}')
+				""")
+		frappe.msgprint(_("Existing OT Records are cancelled"))
 	if po:
-		frappe.db.sql(f"""update `tabPersonal Out Log` set is_cancelled = 1 where name in ('{"', '".join(po)}')""")
+		frappe.db.sql(f"""
+				UPDATE 
+					`tabPersonal Out Log` set is_cancelled = 1
+				WHERE name in ('{"', '".join(po)}')
+				""")
 	return {"ot":ot, "po": po}
 
 def get_checkins(employee, shift_datetime):
-	
 	if not (employee and shift_datetime):
 		return []
 	shift_timings = get_employee_shift_timings(employee, get_datetime(shift_datetime), True)[1] 	#for current shift
-	# frappe.throw(f"{shift_timings}")
 	or_filter = {
 			"time":["between",[get_datetime_str(shift_timings.actual_start), get_datetime_str(shift_timings.actual_end)]]
 	}
-	# frappe.throw(f"{or_filter}")
 	fields = ["date(time) as date", "log_type as type", "time", "source", "name as employee_checkin"]
-	
 	attendance = frappe.db.get_value("Attendance", {"employee": employee, "attendance_date": getdate(shift_datetime), "docstatus":1})
-	# frappe.throw(f"{shift_datetime}")
 	if attendance:
-		# frappe.throw(f"2nd iF")
 		or_filter["attendance"] = attendance
 	data = frappe.get_list("Employee Checkin", filters= {"employee": employee}, or_filters = or_filter, fields=fields, order_by='time')
-	# frappe.throw(f"{data}")
 	if not data:
 		return []
-	
 	return data

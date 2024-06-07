@@ -8,8 +8,14 @@ app_email = "deepak@8848digital.com"
 app_license = "MIT"
 
 doctype_js = {
-    "Cost Center": "client_script/cost_center.js"
+    "Cost Center": "client_script/cost_center.js",
+    "Stock Reconciliation": "public/js/custom_stock_reconciliation.js"
 }
+
+after_migrate = "gurukrupa_customizations.migrate.after_migrate"
+
+# include js in doctype views
+# doctype_js = {"doctype" : "public/js/doctype.js"}
 
 doc_events = {
 	"Payment Entry": {
@@ -49,10 +55,15 @@ fixtures = [
 	}
 ]
 
-from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
-from gurukrupa_customizations.overrides.payment_entry import add_party_gl_entries
-PaymentEntry.add_party_gl_entries = add_party_gl_entries
+override_doctype_class = {
+    "Payment Entry": "gurukrupa_customizations.overrides.payment_entry.CustomPaymentEntry",
+	"Salary Slip": "gurukrupa_customizations.overrides.salary_slip.CustomSalarySlip"
+    }
 
-from hrms.payroll.doctype.salary_slip.salary_slip import SalarySlip
-from gurukrupa_customizations.overrides.salary_slip import get_holidays_for_employee
-SalarySlip.get_holidays_for_employee = get_holidays_for_employee
+# from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
+# from gurukrupa_customizations.overrides.payment_entry import add_party_gl_entries
+# PaymentEntry.add_party_gl_entries = add_party_gl_entries
+
+# from hrms.payroll.doctype.salary_slip.salary_slip import SalarySlip
+# from gurukrupa_customizations.overrides.salary_slip import get_holidays_for_employee
+# SalarySlip.get_holidays_for_employee = get_holidays_for_employee

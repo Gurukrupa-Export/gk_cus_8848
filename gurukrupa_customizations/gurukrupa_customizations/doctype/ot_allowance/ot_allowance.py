@@ -16,7 +16,7 @@ class OTAllowance(Document):
 	def make_ot_logs(self):
 		for log in self.ot_details:
 			if get_timedelta(log.allowed_ot) > get_timedelta(log.attn_ot_hrs):
-				frappe.throw("Allowed OT cannot be greater than Attendance OT Hours")
+				frappe.throw(_("Allowed OT cannot be greater than Attendance OT Hours"))
 			create_ot_log(log)
 		self.ot_details=[]
 		frappe.msgprint(_("Records Updated"))
@@ -46,10 +46,9 @@ class OTAllowance(Document):
 			left join `tabEmployee` emp on at.employee = emp.name
 			where at.docstatus = 1 and time_to_sec(timediff(at.out_time,timestamp(date(at.in_time),st.end_time))) > 0 {conditions}""", as_dict=1)
 		self.ot_details = []
-		# frappe.throw(f"{data}")
 		data = data + self.get_weekoffs_ot(from_log)
 		if not data:
-			frappe.msgprint("No Records were found for the current filters")
+			frappe.msgprint(_("No Records were found for the current filters"))
 			return
 		data = sorted(data, key=lambda x:x.get("attendance_date"))
 		for row in data:
@@ -144,7 +143,7 @@ class OTAllowance(Document):
 
 	def get_conditions(self, from_log):
 		if not (self.from_date and self.to_date):
-			frappe.throw("Invalid Date Range")
+			frappe.throw(_("Invalid Date Range"))
 		conditions = f" and (at.attendance_date between '{getdate(self.from_date)}' and '{getdate(self.to_date)}')"
 		if from_log:
 			conditions += " and otl.name is not null"
@@ -165,6 +164,7 @@ class OTAllowance(Document):
 			sub_query_filter.append(f"e.designation = '{self.designation}'")
 		
 		conditions += f" and at.employee in (select e.name from `tabEmployee` e where {' and '.join(sub_query_filter)})"
+
 		return conditions
 
 def create_ot_log(ref_doc):

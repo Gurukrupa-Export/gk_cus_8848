@@ -29,7 +29,7 @@ frappe.query_reports["Month-Wise Projected Depreciation"] = {
 						query_report.set_filter_value({
 							to_date: null
 						});
-						frappe.throw("Date must be in between Fiscal Year")
+						frappe.throw(__("Date must be in between Fiscal Year"));
 					}
 				});
 				query_report.refresh()
@@ -53,7 +53,7 @@ frappe.query_reports["Month-Wise Projected Depreciation"] = {
 						query_report.set_filter_value({
 							to_date: null
 						});
-						frappe.throw("Date must be in between Fiscal Year")
+						frappe.throw(__("Date must be in between Fiscal Year"));
 					}
 				});
 				query_report.refresh()

@@ -42,7 +42,7 @@ frappe.ui.form.on('Manual Punch', {
 	},
 	add_new_punch(frm) {
 		if (!frm.doc.date || !frm.doc.employee) {
-			frappe.throw("Filters missing")
+			frappe.throw(__("Filters missing"));
 		}
 		if (frm.doc.new_punch) {
 			frappe.run_serially([
@@ -59,7 +59,7 @@ frappe.ui.form.on("Manual Punch Details", {
 	before_details_remove(frm, cdt, cdn) {
 		var row = locals[cdt][cdn]
 		if (!row.employee_checkin) return
-		var to_be_deleted = cur_frm.doc.to_be_deleted ? cur_frm.doc.to_be_deleted.split(',') : []
+		var to_be_deleted = frm.doc.to_be_deleted ? frm.doc.to_be_deleted.split(',') : []
 		to_be_deleted.push(row.employee_checkin)
 		frm.set_value("to_be_deleted", to_be_deleted.join())
 	}
@@ -74,7 +74,7 @@ function validate_dates(frm) {
             var datetimeObj = moment(datetime);
             
             if (!datetimeObj.isSame(dateObj, 'day')) {
-                frappe.throw('The New Punch must be on the same day as the date field.');
+                frappe.throw(__('The New Punch must be on the same day as the date field.'));
             }
         }
 }

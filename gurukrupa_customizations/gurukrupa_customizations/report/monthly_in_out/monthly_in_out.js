@@ -193,9 +193,9 @@ frappe.query_reports["Monthly In-Out"] = {
 			var $value = $(value).css("font-weight", "bold");
 			value = $value.wrap("<p></p>").parent().html();
 		}
-		else if (in_list(time_columns,column.id) && data.attendance_date) {
+		else if (time_columns.includes(column.id) && data.attendance_date) {
 			value = frappe.datetime.str_to_user(value, true)
-			if (data.late_entry && in_list(["in_time", "out_time"],column.id)) {
+			if (data.late_entry && ["in_time", "out_time"].includes(column.id)) {
 				value = $(`<span>${value}</span>`);
 				var $value = $(value).css("color", "red");
 				value = $value.wrap("<p></p>").parent().html();
@@ -206,7 +206,7 @@ frappe.query_reports["Monthly In-Out"] = {
 				value = $value.wrap("<p></p>").parent().html();
 			}
 		}
-		if (in_list(["ot_hours", "total_pay_hrs"], column.id) && in_list(["Net Hrs w/o OT", "Net Days w/o OT"],data.ot_hours)) {
+		if (["ot_hours", "total_pay_hrs"].includes(column.id) && ["Net Hrs w/o OT", "Net Days w/o OT"].includes(data.ot_hours)) {
 			value = $(`<span>${value}</span>`);
 			var $value = $(value).css("color", "blue");
 			value = $value.wrap("<p></p>").parent().html();
@@ -233,7 +233,7 @@ frappe.query_reports["Monthly In-Out"] = {
 		report.page.add_button("Generate", function() {
 			var emp = frappe.query_report.get_filter_value('cur_employee');
 			if (!emp) {
-				frappe.msgprint("No Employee Selected")
+				frappe.msgprint(__("No Employee Selected"));
 			}
 			else {
 				frappe.query_report.set_filter_value({

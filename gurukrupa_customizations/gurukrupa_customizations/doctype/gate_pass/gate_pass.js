@@ -42,14 +42,14 @@ frappe.ui.form.on('Gate Pass', {
 		if (frm.doc.com_contact_no) {
 			let contact_no = frm.doc.com_contact_no.trim()
 			if (contact_no.length < 10) {
-				frappe.throw("Invalid Company Contact No")
+				frappe.throw(__("Invalid Company Contact No"));
 			}
 			frm.set_value("com_contact_no", contact_no)
 		}
 		if (frm.doc.mobile_no) {
 			let contact_no = frm.doc.mobile_no.trim()
 			if (contact_no.length < 10) {
-				frappe.throw("Invalid Mobile No")
+				frappe.throw(__("Invalid Mobile No"));
 			}
 			frm.set_value("mobile_no", contact_no)
 		}

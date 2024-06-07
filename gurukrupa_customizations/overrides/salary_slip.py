@@ -1,6 +1,6 @@
 import frappe
 from frappe.utils import getdate
-
+from hrms.payroll.doctype.salary_slip.salary_slip import SalarySlip
 """
 Provided by sourav, navin
 """
@@ -322,17 +322,18 @@ def before_save(doc, method=None):
         raise
 
 
-def get_holidays_for_employee(self, start_date, end_date):
-    from erpnext.setup.doctype.employee.employee import get_holiday_list_for_employee
-    # HOLIDAYS_BETWEEN_DATES = "holidays_between_dates"
-    holiday_list = get_holiday_list_for_employee(self.employee)
-    # key = f"{holiday_list}:{start_date}:{end_date}"
-    # holiday_dates = frappe.cache().hget(HOLIDAYS_BETWEEN_DATES, key)
-    skip_weekly_offs = self.get("custom_only_weekly_offs",0)
-    holiday_dates = get_holiday_dates_between(holiday_list, start_date, end_date, skip_weekly_offs)
-    # frappe.cache().hset(HOLIDAYS_BETWEEN_DATES, key, holiday_dates)
+class CustomSalarySlip(SalarySlip):
+    def get_holidays_for_employee(self, start_date, end_date):
+        from erpnext.setup.doctype.employee.employee import get_holiday_list_for_employee
+        # HOLIDAYS_BETWEEN_DATES = "holidays_between_dates"
+        holiday_list = get_holiday_list_for_employee(self.employee)
+        # key = f"{holiday_list}:{start_date}:{end_date}"
+        # holiday_dates = frappe.cache().hget(HOLIDAYS_BETWEEN_DATES, key)
+        skip_weekly_offs = self.get("custom_only_weekly_offs",0)
+        holiday_dates = get_holiday_dates_between(holiday_list, start_date, end_date, skip_weekly_offs)
+        # frappe.cache().hset(HOLIDAYS_BETWEEN_DATES, key, holiday_dates)
 
-    return holiday_dates
+        return holiday_dates
 
 
 def get_holiday_dates_between(

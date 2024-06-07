@@ -49,7 +49,7 @@ class PersonalOutGatePass(Document):
 							GROUP BY emp_det.employee, emp_det.at_date, check_out.checkout having in_time is not null""", as_dict=1)
 		self.checkin_details = []
 		if not data and not from_log:
-			frappe.msgprint("No Records were found for the current filters")
+			frappe.msgprint(_("No Records were found for the current filters"))
 			return
 		for row in data:
 			if row.po_log:
@@ -59,7 +59,7 @@ class PersonalOutGatePass(Document):
 
 	def get_conditions(self, from_log):
 		if not (self.from_date and self.to_date):
-			frappe.throw("Invalid Date Range")
+			frappe.throw(_("Invalid Date Range"))
 		conditions = f"where (emp_det.at_date between '{getdate(self.from_date)}' and '{getdate(self.to_date)}')"
 		if from_log:
 			conditions += " and pol.name is not null"
