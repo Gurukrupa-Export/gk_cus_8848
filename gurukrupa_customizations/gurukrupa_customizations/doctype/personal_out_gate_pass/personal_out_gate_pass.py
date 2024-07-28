@@ -5,6 +5,8 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import getdate
 from frappe import _
+from frappe.query_builder.functions import IfNull, Sum, Timestamp, Date, Min
+from frappe.query_builder import CustomFunction
 
 
 class PersonalOutGatePass(Document):
@@ -22,31 +24,93 @@ class PersonalOutGatePass(Document):
 
 	@frappe.whitelist()
 	def get_checkin_details(self, from_log=False):
-		conditions = self.get_conditions(from_log)
-		data = frappe.db.sql(f"""SELECT emp_det.employee, emp_det.employee_name, emp_det.at_date as date, 
-								time(check_out.checkout) as out_time, time(MIN(check_in.time)) AS in_time,
-								time(timediff(MIN(check_in.time),check_out.checkout)) as total_hours,
-								pol.name as po_log, if(pol.name is null, 1, pol.approve) as approve, pol.total_hours as approved_hours
-								FROM (
-								SELECT employee, employee_name, DATE(time) AS at_date, SUM(IF(log_type = 'OUT', 1, 0)) AS cnt, shift_start
-								FROM `tabEmployee Checkin`
-								WHERE log_type = 'OUT'
-								GROUP BY employee, shift_start
-								HAVING cnt > 1
-								) emp_det
-								LEFT JOIN (
-								SELECT time AS checkout, employee AS emp, DATE(time) AS co_date, shift_start
-								FROM `tabEmployee Checkin`
-								WHERE log_type = 'OUT'
-								) check_out ON emp_det.employee = check_out.emp AND emp_det.at_date = check_out.co_date and emp_det.shift_start = check_out.shift_start
-								LEFT JOIN (
-								SELECT time, employee, DATE(time) AS ci_date
-								FROM `tabEmployee Checkin`
-								WHERE log_type = 'IN'
-								) check_in ON emp_det.employee = check_in.employee AND emp_det.at_date = check_in.ci_date AND check_out.checkout < check_in.time
-								LEFT JOIN (select name, approve, total_hours, employee, date, out_time from `tabPersonal Out Log` where is_cancelled = 0) pol on emp_det.employee = pol.employee AND emp_det.at_date = pol.date and time(check_out.checkout) = pol.out_time
-								{conditions}
-							GROUP BY emp_det.employee, emp_det.at_date, check_out.checkout having in_time is not null""", as_dict=1)
+		EmployeeCheckin = frappe.qb.DocType("Employee Checkin")
+		Employee = frappe.qb.DocType("Employee")
+		PersonalOutLog = frappe.qb.DocType("Personal Out Log")
+
+		# To_Seconds = CustomFunction("TIME_TO_SEC", ["date"])
+		ifelse = CustomFunction("IF", ["condition", "then", "else"])
+		Time_Diff = CustomFunction("TIMEDIFF", ["cur_date", "due_date"])
+		Time = CustomFunction("Time", ["time"])
+		# Sec_To_Time = CustomFunction("SEC_TO_TIME", ["date"])
+
+		emp_det = (
+			frappe.qb.from_(EmployeeCheckin)
+			.select(
+				EmployeeCheckin.employee,
+				EmployeeCheckin.employee_name,
+				Date(EmployeeCheckin.time).as_('at_date'),
+				Sum(ifelse(EmployeeCheckin.log_type == 'OUT', 1, 0)).as_('cnt'),
+				EmployeeCheckin.shift_start
+				)
+			.where(
+				(EmployeeCheckin.log_type == 'OUT')
+			)
+			.groupby(EmployeeCheckin.employee, EmployeeCheckin.shift_start)
+			.having(frappe.qb.Field("cnt") > 1)
+		).as_('emp_det')
+
+		check_out = (
+			frappe.qb.from_(EmployeeCheckin)
+			.select(
+				EmployeeCheckin.time.as_('checkout'),
+				EmployeeCheckin.employee.as_('emp'),
+				Date(EmployeeCheckin.time).as_('co_date'),
+				EmployeeCheckin.shift_start
+			)
+			.where(EmployeeCheckin.log_type == 'OUT')
+		).as_('check_out')
+
+		check_in = (
+			frappe.qb.from_(EmployeeCheckin)
+			.select(
+				EmployeeCheckin.time,
+				EmployeeCheckin.employee,
+				Date(EmployeeCheckin.time).as_('ci_date'),
+			)
+			.where(EmployeeCheckin.log_type == 'IN')
+		).as_('check_in')
+
+		pol = (
+			frappe.qb.from_(PersonalOutLog)
+			.select(
+				PersonalOutLog.name,
+				PersonalOutLog.approve,
+				PersonalOutLog.total_hours,
+				PersonalOutLog.employee,
+				PersonalOutLog.date,
+				PersonalOutLog.out_time
+			)
+			.where(PersonalOutLog.is_cancelled == 0)
+		).as_('pol')
+
+		query = (
+			frappe.qb.from_(emp_det)
+			.left_join(check_out).on((emp_det.employee == check_out.emp) & (emp_det.at_date == check_out.co_date) & (emp_det.shift_start == check_out.shift_start))
+			.left_join(check_in).on((emp_det.employee == check_in.employee) & (emp_det.at_date == check_in.ci_date) & (check_out.checkout < check_in.time))
+			.left_join(pol).on((emp_det.employee == pol.employee) & (emp_det.at_date == pol.date) & (Time(check_out.checkout) == pol.out_time))
+			.select(
+				emp_det.employee,
+				emp_det.employee_name,
+				emp_det.at_date.as_('date'),
+				Time(check_out.checkout).as_('out_time'),
+				Time(Min(check_in.time)).as_('in_time'),
+				Time(Time_Diff(Min(check_in.time),check_out.checkout)).as_('total_hours'),
+				pol.name.as_('po_log'),
+				ifelse(pol.name.isnull(), 1, 0).as_('approve'),
+				pol.total_hours.as_('approved_hours')
+			)
+			.groupby(emp_det.employee, emp_det.at_date, check_out.checkout)
+			.having(frappe.qb.Field("in_time").isnotnull())
+		)
+		
+		conditions = self.get_conditions(emp_det, pol, Employee, from_log)
+
+		for condition in conditions:
+			query = query.where(condition)
+	
+		data = query.run(as_dict=True)
+		
 		self.checkin_details = []
 		if not data and not from_log:
 			frappe.msgprint(_("No Records were found for the current filters"))
@@ -57,26 +121,43 @@ class PersonalOutGatePass(Document):
 			self.append("checkin_details", row)
 
 
-	def get_conditions(self, from_log):
+	def get_conditions(self, EmployeeCheckin, PersonalOutLog, Employee, from_log):
+		from frappe.utils import getdate
 		if not (self.from_date and self.to_date):
 			frappe.throw(_("Invalid Date Range"))
-		conditions = f"where (emp_det.at_date between '{getdate(self.from_date)}' and '{getdate(self.to_date)}')"
-		if from_log:
-			conditions += " and pol.name is not null"
-		if self.employee:
-			conditions += f" and emp_det.employee = '{self.employee}'"
-		if self.employee_name:
-			conditions += f" and emp_det.employee_name like '%{self.employee_name}%'"
+		
+		conditions = [
+			(EmployeeCheckin.at_date.between(getdate(self.from_date), getdate(self.to_date)))
+		]
 
+		if from_log:
+			conditions.append((PersonalOutLog.name.isnotnull()))
+	
+		if self.employee:
+			conditions.append((EmployeeCheckin.employee == self.employee))
+		
+		if self.employee_name:
+			conditions.append((EmployeeCheckin.employee_name.like(f"%{self.employee_name}%")))
 		sub_query_filter = []
+		
 		if self.company:
-			sub_query_filter.append(f"e.company = '{self.company}'")
+			sub_query_filter.append((Employee.company == self.company))
+		
 		if self.department:
-			sub_query_filter.append(f"e.department = '{self.department}'")
+			sub_query_filter.append((Employee.department == self.department))
+		
 		if self.designation:
-			sub_query_filter.append(f"e.designation = '{self.designation}'")
-		if sub_query_filter:
-			conditions += f" and emp_det.employee in (select e.name from `tabEmployee` e where {' and '.join(sub_query_filter)})"
+			sub_query_filter.append((Employee.designation == self.designation))
+		
+		sub_query = (
+			frappe.qb.from_(Employee)
+			.select(Employee.name)
+		)
+		for filter in sub_query_filter:
+			sub_query = sub_query.where(filter)
+		
+		conditions.append((EmployeeCheckin.employee.isin(sub_query)))
+		
 		return conditions
 
 def create_prsnl_out_log(ref_doc):

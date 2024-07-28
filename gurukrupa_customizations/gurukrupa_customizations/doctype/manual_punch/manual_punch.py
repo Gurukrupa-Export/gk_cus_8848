@@ -143,18 +143,22 @@ def cancel_linked_records(employee, date):
 	ot = frappe.get_list("OT Log",{"employee":employee, "attendance_date":date, "is_cancelled":0},pluck="name")
 	po = frappe.get_list("Personal Out Log",{"employee":employee, "date":date, "is_cancelled":0},pluck="name")
 	if ot:
-		frappe.db.sql(f"""
-				UPDATE 
-					`tabOT Log` set is_cancelled = 1 
-				WHERE name in ('{"', '".join(ot)}')
-				""")
+		OT_Log = frappe.qb.DocType("OT Log")
+		query_ot = (
+            frappe.qb.update(OT_Log)
+            .set(OT_Log.is_cancelled, 1)
+            .where(OT_Log.name.isin(ot))
+        )
+		query_ot.run()
 		frappe.msgprint(_("Existing OT Records are cancelled"))
 	if po:
-		frappe.db.sql(f"""
-				UPDATE 
-					`tabPersonal Out Log` set is_cancelled = 1
-				WHERE name in ('{"', '".join(po)}')
-				""")
+		Personal_Out_Log = frappe.qb.DocType("Personal Out Log")
+		query_po = (
+            frappe.qb.update(Personal_Out_Log)
+            .set(Personal_Out_Log.is_cancelled, 1)
+            .where(Personal_Out_Log.name.isin(po))
+        )
+		query_po.run()
 	return {"ot":ot, "po": po}
 
 def get_checkins(employee, shift_datetime):

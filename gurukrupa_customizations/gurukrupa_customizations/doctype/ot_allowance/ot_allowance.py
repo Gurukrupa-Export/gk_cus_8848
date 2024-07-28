@@ -7,7 +7,9 @@ from frappe.utils import getdate, add_to_date, get_datetime, get_datetime_str, t
 from frappe import _
 from hrms.hr.doctype.shift_assignment.shift_assignment import get_employee_shift_timings
 from datetime import timedelta, datetime
-
+from frappe.query_builder import DocType
+from frappe.query_builder.functions import IfNull, Sum, Timestamp, Date
+from frappe.query_builder import CustomFunction
 
 class OTAllowance(Document):
 	def validate(self):
@@ -23,28 +25,85 @@ class OTAllowance(Document):
 
 	@frappe.whitelist()
 	def get_ot_details(self, from_log=False):
-		conditions = self.get_conditions(from_log)
-		data = frappe.db.sql(f"""select at.name as attendance, at.employee, at.employee_name, emp.company, emp.designation,
-		 	emp.department, emp.branch, sec_to_time(
-		       	time_to_sec(
-		       		timediff(
-		       			at.out_time, timestamp(date(at.in_time),st.end_time)
-		       		)
-		       	)
-		       	+ if(timestamp(date(at.in_time),st.start_time) > at.in_time, time_to_sec(
-		       		timediff(
-		       			timestamp(date(at.in_time),st.start_time), at.in_time
-		       		)
-		       	),0)
-				- (select ifnull(sum(time_to_sec(pl.total_hours)),0) from `tabPersonal Out Log` pl 
-							where pl.is_cancelled = 0 and pl.employee = at.employee and pl.date = at.attendance_date and pl.out_time >= st.end_time))  as attn_ot_hrs,
-			at.shift, at.attendance_date, TIME(at.in_time) as first_in, TIME(at.out_time) as last_out, otl.name as ot_log, 
-			otl.allow, otl.allowed_ot, otl.remarks
-			from `tabAttendance` at 
-			left join `tabShift Type` st on at.shift = st.name 
-			left join (select * from `tabOT Log` where is_cancelled=0) otl on otl.attendance = at.name 
-			left join `tabEmployee` emp on at.employee = emp.name
-			where at.docstatus = 1 and time_to_sec(timediff(at.out_time,timestamp(date(at.in_time),st.end_time))) > 0 {conditions}""", as_dict=1)
+
+		Attendance = frappe.qb.DocType("Attendance")
+		ShiftType = frappe.qb.DocType("Shift Type")
+		OTLog = frappe.qb.DocType("OT Log")
+		Employee = frappe.qb.DocType("Employee")
+		PersonalOutLog = frappe.qb.DocType("Personal Out Log")
+
+		conditions = self.get_conditions(Attendance, Employee, OTLog, from_log)
+		
+		To_Seconds = CustomFunction("TIME_TO_SEC", ["date"])
+		ifelse = CustomFunction("IF", ["condition", "then", "else"])
+		Time_Diff = CustomFunction("TIMEDIFF", ["cur_date", "due_date"])
+		Time = CustomFunction("Time", ["time"])
+		Sec_To_Time = CustomFunction("SEC_TO_TIME", ["date"])
+
+		sub_query_personal_out_log = (
+			frappe.qb.from_(PersonalOutLog)
+			.select(IfNull(Sum(To_Seconds(PersonalOutLog.total_hours)), 0))
+			.where(
+				(PersonalOutLog.is_cancelled == 0) &
+				(PersonalOutLog.employee == Attendance.employee) &
+				(PersonalOutLog.date == Attendance.attendance_date) &
+				(PersonalOutLog.out_time >= ShiftType.end_time)
+			)
+		)
+
+		ot_hours = (
+			To_Seconds(
+				Time_Diff(
+					Attendance.out_time,
+					Timestamp(Date(Attendance.in_time), ShiftType.end_time)
+				)
+			)
+			+ ifelse(
+				Timestamp(Date(Attendance.in_time), ShiftType.start_time) > Attendance.in_time,
+				To_Seconds(
+					Time_Diff(
+						Timestamp(Date(Attendance.in_time), ShiftType.start_time), Attendance.in_time
+					)
+				), 
+				0
+			)
+			- sub_query_personal_out_log
+		).as_("attn_ot_hrs")
+
+		query = (
+			frappe.qb.from_(Attendance)
+			.left_join(ShiftType).on(Attendance.shift == ShiftType.name)
+			.left_join(OTLog).on((OTLog.attendance == Attendance.name) & (OTLog.is_cancelled == 0))
+			.left_join(Employee).on(Attendance.employee == Employee.name)
+			.select(
+				Attendance.name.as_("attendance"),
+				Attendance.employee,
+				Attendance.employee_name,
+				Employee.company,
+				Employee.designation,
+				Employee.department,
+				Employee.branch,
+				Sec_To_Time(ot_hours).as_("attn_ot_hrs"),
+				Attendance.shift,
+				Attendance.attendance_date,
+				Time(Attendance.in_time).as_("first_in"),
+				Time(Attendance.out_time).as_("last_out"),
+				OTLog.name.as_("ot_log"),
+				OTLog.allow,
+				OTLog.allowed_ot,
+				OTLog.remarks
+			)
+			.where(
+				(Attendance.docstatus == 1) &
+				(To_Seconds(Time_Diff(Attendance.out_time, Timestamp(Date(Attendance.in_time), ShiftType.end_time))) > 0)
+			)
+		)
+
+		for condition in conditions:
+			query = query.where(condition)
+		
+		data = query.run(as_dict=True)
+
 		self.ot_details = []
 		data = data + self.get_weekoffs_ot(from_log)
 		if not data:
@@ -55,7 +114,8 @@ class OTAllowance(Document):
 			if not row.get("allowed_ot"):
 				row["allowed_ot"] = row.get("attn_ot_hrs")
 			if row.get("allowed_ot") <= timedelta(minutes=30):	# for excluding OT that are less than 30 min
-				continue 
+				continue
+
 			self.append("ot_details", row)
 
 	def get_weekoffs_ot(self, from_log=False):
@@ -141,29 +201,47 @@ class OTAllowance(Document):
 				holidays[emp.holiday_list].append(emp)
 		return holidays
 
-	def get_conditions(self, from_log):
+	def get_conditions(self, Attendance, Employee, OTLog, from_log):
+		from frappe.utils import getdate
 		if not (self.from_date and self.to_date):
 			frappe.throw(_("Invalid Date Range"))
-		conditions = f" and (at.attendance_date between '{getdate(self.from_date)}' and '{getdate(self.to_date)}')"
+		conditions = [
+			(Attendance.attendance_date.between(getdate(self.from_date), getdate(self.to_date)))
+		]
 		if from_log:
-			conditions += " and otl.name is not null"
+			conditions.append((OTLog.name.isnotnull()))
+
 		if self.punch_id or self.employee:
 			if not self.employee:
 				self.employee = frappe.db.get_value("Employee",{"attendance_device_id":self.punch_id},'name')
-			conditions += f" and at.employee = '{self.employee}'"
+			conditions.append((Attendance.employee == self.employee))
+
 		if self.employee_name:
-			conditions += f" and at.employee_name like '%{self.employee_name}%'"
-		sub_query_filter = ["e.product_incentive_applicable = 1"]
+			conditions.append((Attendance.employee_name.like(f"%{self.employee_name}%")))
+		
+		sub_query_filter = [
+			(Employee.product_incentive_applicable == 1)
+		]
+
 		if self.company:
-			sub_query_filter.append(f"e.company = '{self.company}'")
+			sub_query_filter.append((Employee.company == self.company))
 		else:
 			frappe.throw(_("Company is mandatory"))
-		if self.department:
-			sub_query_filter.append(f"e.department = '{self.department}'")
-		if self.designation:
-			sub_query_filter.append(f"e.designation = '{self.designation}'")
 		
-		conditions += f" and at.employee in (select e.name from `tabEmployee` e where {' and '.join(sub_query_filter)})"
+		if self.department:
+			sub_query_filter.append((Employee.department == self.department))
+		
+		if self.designation:
+			sub_query_filter.append((Employee.designation == self.designation))
+
+		sub_query = (
+			frappe.qb.from_(Employee)
+			.select(Employee.name)
+		)
+		for filter in sub_query_filter:
+			sub_query = sub_query.where(filter)
+		
+		conditions.append((Attendance.employee.isin(sub_query)))
 
 		return conditions
 

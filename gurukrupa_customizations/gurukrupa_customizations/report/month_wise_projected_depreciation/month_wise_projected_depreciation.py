@@ -19,36 +19,80 @@ def get_data(filters):
 			"Fiscal Year", filters.get("fiscal_year"), ["year_start_date", "year_end_date"]
 		)
 	to_date = filters.get("to_date") or year_end_date
-	child_cond = ""
-	if fb:=filters.get("finance_book"):
-		child_cond = f"and finance_book = '{fb}'"
-	schedules = frappe.db.sql(
-		f"""select a.name as asset, a.asset_category, afb.rate_of_depreciation , a.available_for_use_date, a.purchase_date, 
-			a.location, a.gross_purchase_amount as purchase_value,(
-				select sum(ds.depreciation_amount) from `tabDepreciation Schedule` ds where ds.parent = a.name 
-				and ds.schedule_date <= "{to_date}" {child_cond}) as acc_depreciation, 
-				a.opening_accumulated_depreciation as op_acc_depreciation,
-			ds.current_schedule_date, ds.depreciation_amount, ds.previous_schedule_date from `tabAsset` a left join 
-			(select parent, rate_of_depreciation from `tabAsset Finance Book` group by parent) as afb on a.name = afb.parent
-			right join (
-				SELECT ds.parent, ds.schedule_date AS current_schedule_date, 
-				sum(ds.depreciation_amount) as depreciation_amount, 
-				(
-					SELECT MAX(schedule_date) FROM `tabDepreciation Schedule` WHERE 
-					parent = ds.parent AND schedule_date < '{to_date}' {child_cond}
-				) AS previous_schedule_date 
-				FROM 
-				`tabDepreciation Schedule` ds 
-				WHERE 
-				ds.schedule_date >= '{to_date}' {child_cond}
-				AND (
-					SELECT MIN(schedule_date) FROM `tabDepreciation Schedule` WHERE 
-					parent = ds.parent AND schedule_date >= '{to_date}' {child_cond}
-				) = ds.schedule_date and ds.docstatus = 1 
-				GROUP BY ds.parent, ds.schedule_date
-			) as ds on ds.parent = a.name where a.docstatus = 1 {conditions}""",
-		as_dict=1)
+	Asset = frappe.qb.DocType("Asset")
+	AssetFinanceBook = frappe.qb.DocType("Asset Finance Book")
+	DepreciationSchedule = frappe.qb.DocType("Depreciation Schedule")
 
+	subquery_acc_depreciation = (
+        frappe.qb.from_(DepreciationSchedule)
+        .select(frappe.query_builder.functions.Sum(DepreciationSchedule.depreciation_amount))
+        .where(
+            (DepreciationSchedule.parent == Asset.name) &
+            (DepreciationSchedule.schedule_date <= to_date) &
+            (DepreciationSchedule.docstatus == 1)  # Assuming docstatus should be 1 for accumulated depreciation
+        )
+    )
+
+	subquery_previous_schedule_date = (
+        frappe.qb.from_(DepreciationSchedule)
+        .select(frappe.query_builder.functions.Max(DepreciationSchedule.schedule_date))
+        .where(
+            (DepreciationSchedule.schedule_date < to_date) &
+            (DepreciationSchedule.docstatus == 1)  # Assuming docstatus should be 1 for previous schedule date
+        )
+    )
+		
+	subquery_current_schedule = (
+        frappe.qb.from_(DepreciationSchedule)
+        .select(
+            DepreciationSchedule.parent,
+            DepreciationSchedule.schedule_date.as_("current_schedule_date"),
+            frappe.query_builder.functions.Sum(DepreciationSchedule.depreciation_amount).as_("depreciation_amount"),
+            subquery_previous_schedule_date.as_("previous_schedule_date")
+        )
+        .where(
+            (DepreciationSchedule.schedule_date >= to_date) &
+            (DepreciationSchedule.docstatus == 1) &
+            (DepreciationSchedule.schedule_date ==
+             frappe.qb.from_(DepreciationSchedule)
+             .select(frappe.query_builder.functions.Min(DepreciationSchedule.schedule_date))
+             .where(
+                 (DepreciationSchedule.schedule_date >= to_date) &
+                 (DepreciationSchedule.docstatus == 1)
+             ))
+        )
+        .groupby(DepreciationSchedule.parent, DepreciationSchedule.schedule_date)
+    )
+	#
+	if filters.get("finance_book"):
+		subquery_acc_depreciation = subquery_acc_depreciation.where(DepreciationSchedule.finance_book == filters.get("finance_book"))
+		subquery_previous_schedule_date = subquery_previous_schedule_date.where(DepreciationSchedule.finance_book == filters.get("finance_book"))
+		subquery_current_schedule = subquery_current_schedule.where(DepreciationSchedule.finance_book == filters.get("finance_book"))
+
+	query = (
+        frappe.qb.from_(Asset)
+        .left_join(AssetFinanceBook).on(Asset.name == AssetFinanceBook.parent)
+        .right_join(subquery_current_schedule).on(subquery_current_schedule.parent == Asset.name)
+        .select(
+            Asset.name.as_("asset"),
+            Asset.asset_category,
+            AssetFinanceBook.rate_of_depreciation,
+            Asset.available_for_use_date,
+            Asset.purchase_date,
+            Asset.location,
+            Asset.gross_purchase_amount.as_("purchase_value"),
+            subquery_acc_depreciation.as_("acc_depreciation"),
+            Asset.opening_accumulated_depreciation.as_("op_acc_depreciation"),
+            subquery_current_schedule.current_schedule_date,
+            subquery_current_schedule.depreciation_amount,
+            subquery_current_schedule.previous_schedule_date
+        )
+        .where((Asset.docstatus == 1))
+    )
+	for condition in conditions:
+		query = query.where(condition)
+
+	schedules = query.run(as_dict=True)
 
 	for row in schedules:
 		if getdate(to_date) != row["current_schedule_date"]:
@@ -123,21 +167,28 @@ def get_columns(filters):
 
 
 def get_conditions(filters):
-	condition = ""
-	if asset_category := filters.get("asset_category"):
-		condition += f"and asset_category = '{asset_category}'"
-	if date := filters.get("to_date"):
-		condition += f"""and purchase_date <= '{date}'"""
-	if fy:=filters.get("fiscal_year"):
-		if date:=filters.get("to_date"):
-			fy_date = get_fiscal_year(date)
+	from erpnext.accounts.utils import get_fiscal_year
+	Asset = frappe.qb.DocType("Asset")
+	conditions = []
+
+	if filters.get("asset_category"):
+		conditions.append(Asset.asset_category == filters.get("asset_category"))
+
+	if filters.get("to_date"):
+		conditions.append(Asset.purchase_date <= filters.get("to_date"))
+
+	if filters.get("fiscal_year"):
+		if filters.get("to_date"):
+			fy_date = get_fiscal_year(filters.get("to_date"))
 		else:
-			year_end_date = frappe.get_cached_value("Fiscal Year", filters.get("fiscal_year"),"year_end_date")
-			condition += f"""and purchase_date <= '{year_end_date}'"""
-	if location:=filters.get("location"):
-		filters.location = frappe.parse_json(filters.get("location"))
-		condition += f"""and location in ('{"', '".join(filters.location)}')"""
-	return condition
+			year_end_date = frappe.get_cached_value("Fiscal Year", filters.get("fiscal_year"), "year_end_date")
+			conditions.append(Asset.purchase_date <= year_end_date)
+
+	if filters.get("location"):
+		locations = frappe.parse_json(filters.get("location"))
+		conditions.append(Asset.location.isin(locations))
+
+	return conditions
 
 def get_no_of_days(end_date, start_date):
 	return abs((end_date-start_date).days)
