@@ -70,9 +70,9 @@
   },
   {
    "fieldname": "mobile_no",
-   "fieldtype": "Data",
+   "fieldtype": "Link",
    "label": "Mobile No",
-   "options": "Phone"
+   "options": "Gate Pass Contact"
   },
   {
    "depends_on": "eval:doc.gatepass_type=='In-Visitor'",
